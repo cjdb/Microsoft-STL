@@ -1784,8 +1784,45 @@ concept _Constant_iterator = input_iterator<_Ty> && same_as<iter_const_reference
 _EXPORT_STD template <input_iterator _Iter>
 class basic_const_iterator;
 
+_EXPORT_STD template<class>
+struct const_iterator_counterpart {};
+
+_EXPORT_STD template<class _Iter>
+struct const_iterator_counterpart<_Iter const> : const_iterator_counterpart<_Iter> {};
+
+_EXPORT_STD template<class _Ty>
+struct const_iterator_counterpart<_Ty*> { using type = _Ty const*; };
+
+_EXPORT_STD template<input_iterator _Iter>
+requires requires { typename _Iter::const_iterator_counterpart; }
+struct const_iterator_counterpart<_Iter> { using type = typename _Iter::const_iterator_counterpart; };
+
+_EXPORT_STD template<input_iterator _Iter>
+requires requires { typename const_iterator_counterpart<_Iter>::type; }
+using const_iterator_counterpart_t = typename const_iterator_counterpart<_Iter>::type;
+
+template<class _Iter>
+concept _Constant_iterator_convertible = !_Constant_iterator<_Iter> && requires {
+    typename const_iterator_counterpart_t<_Iter>;
+};
+
+template <class _Iter>
+struct _Const_iterator {
+    using _Type = basic_const_iterator<_Iter>;
+};
+
+template <_Constant_iterator _Iter>
+struct _Const_iterator<_Iter> {
+    using _Type = _Iter;
+};
+
+template <_Constant_iterator_convertible _Iter>
+struct _Const_iterator<_Iter> {
+    using _Type = const_iterator_counterpart_t<_Iter>;
+};
+
 _EXPORT_STD template <input_iterator _Iter>
-using const_iterator = conditional_t<_Constant_iterator<_Iter>, _Iter, basic_const_iterator<_Iter>>;
+using const_iterator = typename _Const_iterator<_Iter>::_Type;
 
 template <class _Sent>
 struct _Const_sentinel {
@@ -2479,12 +2516,12 @@ namespace ranges {
     using range_common_reference_t = iter_common_reference_t<iterator_t<_Rng>>;
 
 #if _HAS_CXX23
-    _EXPORT_STD template <class _Rng>
-    concept constant_range = input_range<_Rng> && _Constant_iterator<iterator_t<_Rng>>;
+    template <class _Rng>
+    concept _Constant_range_base = input_range<_Rng> && _Constant_iterator<iterator_t<_Rng>>;
 
     template <input_range _Rng>
     _NODISCARD constexpr auto& _Possibly_const_range(_Rng& _Range) noexcept {
-        if constexpr (constant_range<const _Rng> && !constant_range<_Rng>) {
+        if constexpr (_Constant_range_base<const _Rng> && !_Constant_range_base<_Rng>) {
             return _STD as_const(_Range);
         } else {
             return _Range;
@@ -2499,15 +2536,26 @@ namespace ranges {
     template <class _Ty>
     using _Begin_on_const = decltype(_RANGES begin(_RANGES _Possibly_const_range(_STD declval<_Ty&>())));
 
+    template <class _Ty>
+    using _End_on_const = decltype(_RANGES end(_RANGES _Possibly_const_range(_STD declval<_Ty&>())));
+
+    template <class _Ty>
+    inline constexpr auto _Constant_range = false;
+
+    template <input_range _Ty>
+    inline constexpr auto _Constant_range<_Ty> = sentinel_for<sentinel_t<_Ty>, const_iterator<_Begin_on_const<_Ty>>>;
+
+    template <input_range _Ty>
+    requires requires { typename _End_on_const<_Ty>; }
+    inline constexpr auto _Constant_range<_Ty> = sentinel_for<_End_on_const<_Ty>, const_iterator<_Begin_on_const<_Ty>>>;
+
     // TRANSITION, LLVM-55945
     template <class _Ty>
     concept _Range_accessible_and_begin_adaptable =
         _Should_range_access<_Ty>
         && requires(
-            _Ty& _Val) { const_iterator<_Begin_on_const<_Ty>>{_RANGES begin(_RANGES _Possibly_const_range(_Val))}; };
-
-    template <class _Ty>
-    using _End_on_const = decltype(_RANGES end(_RANGES _Possibly_const_range(_STD declval<_Ty&>())));
+            _Ty& _Val) { const_iterator<_Begin_on_const<_Ty>>{_RANGES begin(_RANGES _Possibly_const_range(_Val))}; }
+        && _Constant_range<_Ty>;
 
     // TRANSITION, LLVM-55945
     template <class _Ty>
@@ -2560,6 +2608,14 @@ namespace ranges {
     inline namespace _Cpos {
         _EXPORT_STD inline constexpr _Cend_fn cend;
     }
+
+#if _HAS_CXX23
+    _EXPORT_STD template <class _Rng>
+    concept constant_range = _Constant_range_base<_Rng> && requires(_Rng & __r) {
+        ranges::cbegin(__r);
+        ranges::cend(__r);
+    };
+#endif
 
     namespace _Rbegin {
 #if defined(__clang__) || defined(__EDG__) // TRANSITION, VSO-1681199

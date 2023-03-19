@@ -2,11 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 #include <cassert>
+#include <concepts>
+#include <deque>
 #include <iterator>
 #include <memory>
 #include <ranges>
 #include <type_traits>
 #include <utility>
+#include <vector>
 
 #include "range_algorithm_support.hpp"
 
@@ -298,7 +301,61 @@ constexpr void instantiation_test() {
     instantiator::call<test_iterator<contiguous_iterator_tag, CanDifference::yes>>();
 }
 
+struct zsentinel {
+    friend bool operator==(zsentinel, char* p) {
+        return *p == '\0';
+    }
+};
+
+struct zstring {
+    char* p;
+
+    char* begin() const {
+        return p;
+    }
+    zsentinel end() const {
+        return {};
+    }
+};
+
+template <class T>
+inline constexpr bool euhtnoahtinhd = requires(T t) { std::ranges::cbegin(t); };
+
 int main() {
     static_assert((instantiation_test(), true));
     instantiation_test();
+
+    static_assert(std::same_as<std::const_iterator<int*>, int const*>);
+    {
+        using V = std::vector<int>;
+        auto v  = V();
+
+        using I1 = decltype(std::ranges::cbegin(v));
+        using I2 = std::ranges::const_iterator_t<V>;
+        static_assert(std::same_as<I1, I2>);
+
+        using S = std::ranges::subrange<V::iterator>;
+        auto s  = S(v.begin(), v.end());
+
+        using I3 = std::const_iterator<std::ranges::iterator_t<S>>;
+        static_assert(std::same_as<I1, I3>);
+    }
+    {
+        using V = std::deque<int>;
+        auto v  = V();
+
+        using I1 = decltype(std::ranges::cbegin(v));
+        using I2 = std::ranges::const_iterator_t<V>;
+        static_assert(not std::same_as<I1, I2>);
+
+        using S = std::ranges::subrange<V::iterator>;
+        auto s  = S(v.begin(), v.end());
+
+        using I3 = std::const_iterator<std::ranges::iterator_t<S>>;
+        static_assert(not std::same_as<I1, I3>);
+    }
+    {
+        static_assert(requires(zstring & z) { std::ranges::begin(z); });
+        static_assert(not euhtnoahtinhd<zstring>);
+    }
 }
