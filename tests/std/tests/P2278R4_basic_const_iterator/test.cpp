@@ -2,11 +2,18 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 #include <cassert>
+#include <concepts>
+#include <deque>
+#include <forward_list>
 #include <iterator>
+#include <list>
 #include <memory>
 #include <ranges>
+#include <string_view>
+#include <string>
 #include <type_traits>
 #include <utility>
+#include <vector>
 
 #include "range_algorithm_support.hpp"
 
@@ -263,6 +270,35 @@ void test_lwg3853() { // COMPILE-ONLY
     [[maybe_unused]] same_as<const volatile int*> auto ptr = it.operator->();
 }
 
+template <ranges::forward_range R>
+    requires requires { typename R::const_iterator; }
+constexpr void test_p2836() {
+    R r;
+    using CI  = typename R::const_iterator;
+    using MI  = typename R::iterator; // M for "mutable"; distinguishes from CI
+    using BCI = basic_const_iterator<MI>;
+
+    auto t = r | views::take_while([](auto i) { return i != 100; });
+    auto f = [](CI i) { return i; };
+
+    { // Validate basic_const_iterator::operator CI() const&
+        BCI i(t.begin());
+        assert(f(i) == r.cbegin());
+        assert(f(as_const(i)) == r.cbegin());
+        assert(f(move(as_const(i))) == r.cbegin());
+
+        static_assert(!convertible_to<BCI&, MI>);
+        static_assert(!convertible_to<const BCI&, MI>);
+        static_assert(!convertible_to<const BCI&&, MI>);
+    }
+
+    { // Validate basic_const_iterator::operator CI() &&
+        assert(f(BCI(t.begin())) == r.cbegin());
+
+        static_assert(!convertible_to<BCI, MI>);
+    }
+}
+
 static constexpr int some_ints[] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10};
 
 // Check LWG-3872
@@ -296,9 +332,16 @@ constexpr void instantiation_test() {
     instantiator::call<test_iterator<bidirectional_iterator_tag, CanDifference::yes>>();
     instantiator::call<test_iterator<random_access_iterator_tag, CanDifference::yes>>();
     instantiator::call<test_iterator<contiguous_iterator_tag, CanDifference::yes>>();
+
+    test_p2836<string>();
+    test_p2836<vector<int>>();
 }
 
 int main() {
     static_assert((instantiation_test(), true));
     instantiation_test();
+
+    test_p2836<forward_list<int>>();
+    test_p2836<deque<int>>();
+    test_p2836<list<int>>();
 }
