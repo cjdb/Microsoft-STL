@@ -2254,6 +2254,18 @@ public:
         noexcept(static_cast<_Rvalue_reference>(_RANGES iter_move(_It._Current)))) {
         return static_cast<_Rvalue_reference>(_RANGES iter_move(_It._Current));
     }
+
+    template <_Not_a_const_iterator _CI>
+        requires _Constant_iterator<_CI> && convertible_to<_Iter const&, _CI>
+    _NODISCARD constexpr operator _CI() const& {
+        return _Current;
+    }
+
+    template <_Not_a_const_iterator _CI>
+        requires _Constant_iterator<_CI> && convertible_to<_Iter, _CI>
+    _NODISCARD constexpr operator _CI() && {
+        return std::move(_Current);
+    }
 };
 
 template <class _Ty1, common_with<_Ty1> _Ty2>
